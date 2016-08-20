@@ -19,6 +19,9 @@ The following python packages are required:
 The configuration file `default.conf` is expected to be in /etc/duplicity/. Settings to change include SERVER, GPG_PASSPHRASE, FTP_PASSWORD 
 (if you use FTP instead of sftp), and the ssh IdentityFile path in BACKUP_PARAM.
 
+**Logging:** The script currently expects write access to `/var/log/duplicity.log` and the folder `/var/log/duplicity`
+for session logs. If you're running as an unprivileged user these log destinations need to be created manually.
+
 ###Commands
 
 The main commands are:
@@ -60,6 +63,11 @@ dup - dup[licity] Management Script
         D=Days, W=Weeks, M=Months, Y=Years
         h=hours, m=minutes, s=seconds
 ```
+
+###To-Do:
+
+* Update log file handling with improved helper functions
+* Add handling for errors related to missing logging path
 
 
 [![Analytics](https://cjs-beacon.appspot.com/UA-10006093-3/github/cjsheets/duplicity-utils?pixel)](https://github.com/cjsheets/duplicity-utils)
