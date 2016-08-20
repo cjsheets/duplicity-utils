@@ -1,0 +1,199 @@
+#!/bin/bash
+#| 
+#|  Duplicity Utils
+#| 
+#| - Wrapper for duplicity, aids in managing and logging backup operations
+#| - License: MIT
+#| - URL: github.com/cjsheets/duplicity-utils
+#| 
+
+
+[ `ps aux | grep --count "[/]usr/bin/duplicity"` -gt 0 ] && error_handler 0
+[ ! `type -P gpg ` ] && error_handler 11
+
+backup () {
+
+    output "Initialize backup by removing old versions"
+    remove $FULL_LIFE
+    output "Perform backup with command:"
+    output "duplicity ${BACKUP_PARAM} --full-if-older-than ${FULL_FREQ} ${EXCLUDE}  ${INCLUDE} --exclude '**' / ${SERVER}"
+    duplicity ${BACKUP_PARAM} --full-if-older-than ${FULL_FREQ} ${EXCLUDE} ${INCLUDE} --exclude '**' / ${SERVER} >> $SESSION_LOG
+    [ $? -eq 0 ] && output "Backup: SUCCESS" || error_handler 5
+    output "Operation completed"
+
+}
+
+cleanup () {
+
+    output "cleanup started"
+    duplicity cleanup --force $SERVER >> $SESSION_LOG
+    [ $? -eq 0 ] && output "Cleanup: SUCCESS" || error_handler 10
+
+}
+
+list() {
+
+    duplicity list-current-files $SERVER
+    [ $? -eq 0 ] && output "List: SUCCESS" || error_handler 8
+}
+
+log() {
+
+    less $SESSION_LOG
+
+}
+
+output() {
+
+    echo "[$(date +'%Y-%m-%d %H:%M:%S')] dup - ${1}" | tee -a $SESSION_LOG >> $MASTER_LOG
+
+}
+
+remove() {
+
+    output "Remove full-backups older than ${FULL_LIFE} with command:"
+    output "duplicity remove-older-than ${FULL_LIFE} ${REMOVE_PARAM} ${SERVER}:"
+    duplicity remove-older-than $FULL_LIFE $REMOVE_PARAM $SERVER >> $SESSION_LOG
+    [ $? -eq 0 ] && output "Remove: SUCCESS" || error_handler 6
+    output "Remove incrementals older than the last ${INC_CYCLE_LIFE} full backups with command:"
+    output "duplicity remove-all-inc-of-but-n-full ${INC_CYCLE_LIFE} ${REMOVE_PARAM} ${SERVER}"
+    duplicity remove-all-inc-of-but-n-full $INC_CYCLE_LIFE $REMOVE_PARAM $SERVER >> $SESSION_LOG
+    [ $? -eq 0 ] && output "Remove: SUCCESS" || error_handler 6
+
+}
+
+status() {
+
+    duplicity collection-status $SERVER
+    [ $? -eq 0 ] && output "Status: SUCCESS" || error_handler 9
+
+}
+
+restore() {
+
+    output "Perform restore with command:"
+    if [ -z $TIME ]; then
+        output "duplicity restore --file-to-restore ${FILE} ${SERVER} ${DESTINATION}"
+        duplicity restore --file-to-restore $FILE $SERVER $DESTINATION >> $SESSION_LOG
+    else
+        output "duplicity restore --file-to-restore ${FILE} --time ${TIME} ${SERVER} ${DESTINATION}"
+        duplicity restore --file-to-restore $FILE --time $TIME $SERVER $DESTINATION >> $SESSION_LOG
+    fi
+    [ $? -eq 0 ] && output "Restore: SUCCESS" || error_handler 7
+    output "Operation completed"
+}
+
+error_handler() {
+
+    unset FTP_PASSWORD
+    unset PASSPHRASE
+    case "$1" in
+        0) echo "Error: Duplicity already running.  exiting..."; exit 1 ;;
+        1) echo "Cannot perform multiple operations, exiting...   [dup -h for help]"; exit 1 ;;
+        2) echo "Unexpected flag, exiting...  [dup -h for help]"; exit 1 ;;
+        3) echo "Flag value was not provided, exiting...  [dup -h for help]"; exit 1 ;;
+        4) echo "Configuration file was not found, exiting...  [dup -h for help]"; exit 1 ;;
+        5) output "Backup: FAILURE";
+          echo "Error performing \`duplicity backup\`, see the session log for details. exiting..."; exit 1 ;;
+        6) output "Remove: FAILURE";
+          echo "Error performing \`duplicity remove\`, see the session log for details. exiting..."; exit 1 ;;
+        7) output "Restore: FAILURE";
+          echo "Error performing \`duplicity restore\`, see the session log for details. exiting..."; exit 1 ;;
+        8) output "List: FAILURE";
+          echo "Error performing \`duplicity list-current-files\`, see the session log for details. exiting..."; exit 1 ;;
+        9) output "Status: FAILURE";
+          echo "Error performing \`duplicity collection-status\`, see the session log for details. exiting..."; exit 1 ;;
+        10) output "Clean: FAILURE";
+          echo "Error performing \`duplicity cleanup\`, see the session log for details. exiting..."; exit 1 ;;
+        11) echo "Error: GPG keychain required but missing.  exiting..."; exit 1 ;;
+        *) echo "Unexpected error, exiting...  [dup -h for help]"; exit 1 ;;
+    esac
+
+}
+
+help() {
+
+    echo "dup - dup[licity] Management Script
+
+  Syntax: dup [command] [options]
+
+  Commands:
+    -b       perform backup
+    -h       help menu
+    -l       list backup files
+    -o       output todays log
+    -r       restore files (requires: -f -d [-t])
+    -s       status of backup
+    -u       cleanup backup(s)
+    -x       remove backup(s)
+
+        See configuration file for parameters used by `-x`
+
+  Options:
+    -c       configuration file
+
+        Unless specified, `/etc/duplicity/default.conf` is used
+
+    -d       destination to put restore
+    -f       file(s) to restore
+    -t       time to restore
+
+        now
+        2002-01-25T07:00:00+02:00
+        D=Days, W=Weeks, M=Months, Y=Years
+        h=hours, m=minutes, s=seconds
+    "
+}
+
+VERBOSE='false'
+FUNCTION=''
+
+while getopts ':bc:d:f:hlrst:uvxz' flag; do
+    case $flag in
+        b) [ -z $FUNCTION ] && FUNCTION='backup'|| error_handler 1;;
+        c) CONF_FILE="${OPTARG}" ;;
+        d) DESTINATION="${OPTARG}" ;;
+        f) FILE="${OPTARG}" ;;
+        h) [ -z $FUNCTION ] && FUNCTION='help'||error_handler 1;;
+        l) [ -z $FUNCTION ] && FUNCTION='list'|| error_handler 1;;
+        o) [ -z $FUNCTION ] && FUNCTION='log'|| error_handler 1;;
+        r) [ -z $FUNCTION ] && FUNCTION='restore'|| error_handler 1;;
+        s) [ -z $FUNCTION ] && FUNCTION='status'|| error_handler 1;;
+        u) [ -z $FUNCTION ] && FUNCTION='cleanup'|| error_handler 1;;
+        t) TIME="${OPTARG}" ;;
+        v) VERBOSE='true' ;;
+        x) [ -z $FUNCTION ] && FUNCTION='remove'|| error_handler 1;;
+        \?) error_handler 2;;
+        :) error_handler 3;;
+    esac
+done
+
+CONF_FILE='default.conf'
+INCLUDE=''
+EXCLUDE=''
+
+[ -f /etc/duplicity/$CONF_FILE ] && source /etc/duplicity/$CONF_FILE || error_handler 4
+
+MASTER_LOG=${MASTER_LOG:-"/var/log/duplicity.log"}
+SESSION_LOG=${SESSION_LOG:-"/var/log/duplicity//duplicity_$(date +'%Y-%m-%d_%H:%I:%S').log"}
+FULL_FREQ=${FULL_FREQ:-"1M"}
+FULL_LIFE=${FULL_LIFE:-"6M"}
+INC_CYCLE_LIFE=${INC_CYCLE_LIFE:-"2"}
+
+export FTP_PASSWORD=$FTP_PASSWORD
+export PASSPHRASE=$GPG_PASSPHRASE
+
+if [ `type -t $FUNCTION`"" == 'function' ]; then
+    output "|"
+    output "| Called Function: \`${FUNCTION}\`"
+    output "|"
+    output "using configuration file: /etc/duplicity/${CONF_FILE}"
+    $FUNCTION
+else
+    help
+fi
+
+unset FTP_PASSWORD
+unset PASSPHRASE
+
+exit 0
